@@ -1,0 +1,24 @@
+# Build artifacts
+/bin/
+/dist/
+/tmp/
+*.exe
+*.dll
+*.so
+*.dylib
+*.out
+*.test
+*.prof
+coverage.out
+
+# Environment and local overrides
+.env
+.env.local
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+.codex
