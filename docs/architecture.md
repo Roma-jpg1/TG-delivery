@@ -17,6 +17,14 @@
 - PostgreSQL
 - Admin panel via API
 
+## Implemented baseline flow
+1. `GET /api/v1/menu/branches/{branchID}`
+2. `POST /api/v1/cart/items`
+3. `POST /api/v1/checkout/draft`
+4. `POST /api/v1/payments/sessions`
+5. `POST /api/v1/webhooks/payments/mock`
+6. worker processes inbox event and transitions order/payment states
+
 ## Backend module boundaries
 - users
 - restaurants / branches

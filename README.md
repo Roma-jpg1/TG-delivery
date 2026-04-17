@@ -14,6 +14,9 @@ This repository contains:
 - health endpoints (`/health/live`, `/health/ready`)
 - initial PostgreSQL migration with core business tables
 - stop-list API with transactional audit/outbox writes
+- public order flow baseline: `menu -> cart -> checkout draft -> payment session`
+- webhook inbox ingestion (`inbox_events`) + worker processing to move order/payment states
+- manual review admin endpoints
 - docker compose for local infrastructure
 
 ## Quick start
@@ -38,6 +41,21 @@ Single binary supports two roles via `APP_ROLE`:
     - `audit_log`
     - `outbox_events`
 
+## Public flow API
+- `GET /api/v1/menu/branches/{branchID}`
+- `GET /api/v1/cart?user_id={uuid}&branch_id={uuid}`
+- `POST /api/v1/cart/items`
+- `DELETE /api/v1/cart/items/{cartItemID}?user_id={uuid}&branch_id={uuid}`
+- `POST /api/v1/checkout/draft`
+- `POST /api/v1/payments/sessions`
+- `POST /api/v1/webhooks/payments/mock` (header `X-Mock-Payment-Secret`)
+
+## Manual review API
+- `GET /api/v1/admin/orders/manual-review`
+- `POST /api/v1/admin/orders/{orderID}/manual-review/resolve`
+
+Admin endpoints require header `X-Admin-Token`.
+
 ## Key folders
 - `internal/app` — API runtime
 - `internal/worker` — worker runtime
@@ -48,8 +66,8 @@ Single binary supports two roles via `APP_ROLE`:
 - `docs` — architecture notes and roadmap
 
 ## Next implementation milestones
-1. Menu CRUD + branch pricing API
-2. Cart/checkout server-side revalidation
-3. Payment provider integration + webhook inbox
-4. Saga orchestrator + compensation flow
-5. Telegram bot and Mini App contracts
+1. Telegram Bot integration (`/start`, deep links, order notifications)
+2. Mini App + Admin panel frontend
+3. Real payment provider adapter (replace mock provider)
+4. Delivery/routing module and courier lifecycle
+5. Production observability dashboards + SLO automation
