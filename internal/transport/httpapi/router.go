@@ -8,6 +8,8 @@ import (
 	"TG-delivery/internal/config"
 	"TG-delivery/internal/transport/httpapi/handlers"
 	adminhandlers "TG-delivery/internal/transport/httpapi/handlers/admin"
+	publichandlers "TG-delivery/internal/transport/httpapi/handlers/public"
+	webhookhandlers "TG-delivery/internal/transport/httpapi/handlers/webhooks"
 	"TG-delivery/internal/transport/httpapi/middleware"
 
 	"github.com/go-chi/chi/v5"
@@ -16,6 +18,13 @@ import (
 
 type Dependencies struct {
 	AvailabilityHandler *adminhandlers.AvailabilityHandler
+	OrdersHandler       *adminhandlers.OrdersHandler
+	MenuHandler         *publichandlers.MenuHandler
+	CartHandler         *publichandlers.CartHandler
+	CheckoutHandler     *publichandlers.CheckoutHandler
+	PaymentsHandler     *publichandlers.PaymentsHandler
+	MockPaymentWebhook  *webhookhandlers.MockPaymentHandler
+	TelegramWebhook     *webhookhandlers.TelegramHandler
 }
 
 func NewRouter(cfg config.Config, logger *slog.Logger, checkDB func() error, deps Dependencies) http.Handler {
@@ -40,11 +49,40 @@ func NewRouter(cfg config.Config, logger *slog.Logger, checkDB func() error, dep
 			_, _ = w.Write([]byte("pong"))
 		})
 
-		if deps.AvailabilityHandler != nil {
+		if deps.MenuHandler != nil {
+			api.Get("/menu/branches/{branchID}", deps.MenuHandler.ListBranchMenu)
+		}
+		if deps.CartHandler != nil {
+			api.Get("/cart", deps.CartHandler.GetActiveCart)
+			api.Post("/cart/items", deps.CartHandler.UpsertCartItem)
+			api.Delete("/cart/items/{cartItemID}", deps.CartHandler.DeleteCartItem)
+		}
+		if deps.CheckoutHandler != nil {
+			api.Post("/checkout/draft", deps.CheckoutHandler.CreateDraft)
+		}
+		if deps.PaymentsHandler != nil {
+			api.Post("/payments/sessions", deps.PaymentsHandler.CreateSession)
+		}
+
+		if deps.AvailabilityHandler != nil || deps.OrdersHandler != nil {
 			api.Route("/admin", func(admin chi.Router) {
-				admin.Get("/branches/{branchID}/stop-list", deps.AvailabilityHandler.ListStopList)
-				admin.Put("/branches/{branchID}/menu-items/{menuItemID}/availability", deps.AvailabilityHandler.UpdateAvailability)
+				admin.Use(middleware.RequireAdminToken(cfg.Security.AdminToken))
+				if deps.AvailabilityHandler != nil {
+					admin.Get("/branches/{branchID}/stop-list", deps.AvailabilityHandler.ListStopList)
+					admin.Put("/branches/{branchID}/menu-items/{menuItemID}/availability", deps.AvailabilityHandler.UpdateAvailability)
+				}
+				if deps.OrdersHandler != nil {
+					admin.Get("/orders/manual-review", deps.OrdersHandler.ListManualReview)
+					admin.Post("/orders/{orderID}/manual-review/resolve", deps.OrdersHandler.ResolveManualReview)
+				}
 			})
+		}
+
+		if deps.MockPaymentWebhook != nil {
+			api.Post("/webhooks/payments/mock", deps.MockPaymentWebhook.Ingest)
+		}
+		if deps.TelegramWebhook != nil {
+			api.Post("/webhooks/telegram", deps.TelegramWebhook.Ingest)
 		}
 	})
 

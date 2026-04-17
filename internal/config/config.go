@@ -14,6 +14,8 @@ type Config struct {
 	HTTP        HTTPConfig
 	Database    DatabaseConfig
 	Worker      WorkerConfig
+	Security    SecurityConfig
+	Webhooks    WebhookConfig
 }
 
 type HTTPConfig struct {
@@ -34,6 +36,15 @@ type DatabaseConfig struct {
 type WorkerConfig struct {
 	OutboxPollInterval time.Duration
 	BatchSize          int
+}
+
+type SecurityConfig struct {
+	AdminToken string
+}
+
+type WebhookConfig struct {
+	MockPaymentSecret string
+	TelegramSecret    string
 }
 
 func Load() Config {
@@ -58,6 +69,13 @@ func Load() Config {
 		Worker: WorkerConfig{
 			OutboxPollInterval: getDurationEnv("WORKER_OUTBOX_POLL_INTERVAL", 2*time.Second),
 			BatchSize:          getIntEnv("WORKER_BATCH_SIZE", 100),
+		},
+		Security: SecurityConfig{
+			AdminToken: getEnv("ADMIN_TOKEN", "dev-admin-token"),
+		},
+		Webhooks: WebhookConfig{
+			MockPaymentSecret: getEnv("MOCK_PAYMENT_WEBHOOK_SECRET", "dev-mock-payment-secret"),
+			TelegramSecret:    getEnv("TELEGRAM_WEBHOOK_SECRET", "dev-telegram-secret"),
 		},
 	}
 }

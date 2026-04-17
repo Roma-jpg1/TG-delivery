@@ -10,9 +10,17 @@ import (
 
 	"TG-delivery/internal/config"
 	"TG-delivery/internal/modules/availability"
+	"TG-delivery/internal/modules/cart"
+	"TG-delivery/internal/modules/checkout"
+	"TG-delivery/internal/modules/menu"
+	"TG-delivery/internal/modules/orders"
+	"TG-delivery/internal/modules/payments"
+	webhooksmodule "TG-delivery/internal/modules/webhooks"
 	"TG-delivery/internal/storage/postgres"
 	"TG-delivery/internal/transport/httpapi"
 	adminhandlers "TG-delivery/internal/transport/httpapi/handlers/admin"
+	publichandlers "TG-delivery/internal/transport/httpapi/handlers/public"
+	webhookhandlers "TG-delivery/internal/transport/httpapi/handlers/webhooks"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -33,11 +41,25 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	availabilityRepo := availability.NewPostgresRepository(db)
 	availabilityService := availability.NewService(availabilityRepo)
 	availabilityHandler := adminhandlers.NewAvailabilityHandler(availabilityService)
+	menuHandler := publichandlers.NewMenuHandler(menu.NewService(db))
+	cartHandler := publichandlers.NewCartHandler(cart.NewService(db))
+	checkoutHandler := publichandlers.NewCheckoutHandler(checkout.NewService(db))
+	paymentsHandler := publichandlers.NewPaymentsHandler(payments.NewService(db))
+	ordersHandler := adminhandlers.NewOrdersHandler(orders.NewService(db))
+	mockWebhookHandler := webhookhandlers.NewMockPaymentHandler(webhooksmodule.NewMockPaymentService(db, cfg.Webhooks.MockPaymentSecret))
+	telegramWebhookHandler := webhookhandlers.NewTelegramHandler(webhooksmodule.NewTelegramService(db, cfg.Webhooks.TelegramSecret))
 
 	router := httpapi.NewRouter(cfg, logger, func() error {
 		return postgres.Ping(context.Background(), db, cfg.Database.HealthcheckTimeout)
 	}, httpapi.Dependencies{
 		AvailabilityHandler: availabilityHandler,
+		OrdersHandler:       ordersHandler,
+		MenuHandler:         menuHandler,
+		CartHandler:         cartHandler,
+		CheckoutHandler:     checkoutHandler,
+		PaymentsHandler:     paymentsHandler,
+		MockPaymentWebhook:  mockWebhookHandler,
+		TelegramWebhook:     telegramWebhookHandler,
 	})
 
 	httpServer := &http.Server{

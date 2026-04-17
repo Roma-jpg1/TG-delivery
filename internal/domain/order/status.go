@@ -40,6 +40,7 @@ var allowedTransitions = map[Status]map[Status]struct{}{
 	StatusPaid: {
 		StatusConfirmed:     {},
 		StatusRefundPending: {},
+		StatusManualReview:  {},
 	},
 	StatusConfirmed: {
 		StatusPreparing: {},
@@ -58,6 +59,12 @@ var allowedTransitions = map[Status]map[Status]struct{}{
 	StatusRefundPending: {
 		StatusRefunded:     {},
 		StatusManualReview: {},
+	},
+	StatusManualReview: {
+		StatusConfirmed:     {},
+		StatusCancelled:     {},
+		StatusRefundPending: {},
+		StatusRefunded:      {},
 	},
 }
 

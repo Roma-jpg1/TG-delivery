@@ -2,7 +2,6 @@ package admin
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -53,7 +52,7 @@ func (h *AvailabilityHandler) UpdateAvailability(w http.ResponseWriter, r *http.
 	}
 
 	var req updateAvailabilityRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := handlers.DecodeJSON(r, &req); err != nil {
 		handlers.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -128,18 +127,6 @@ func (h *AvailabilityHandler) ListStopList(w http.ResponseWriter, r *http.Reques
 		"items": items,
 		"count": len(items),
 	})
-}
-
-func decodeJSON(r *http.Request, dest any) error {
-	if r.Body == nil {
-		return errors.New("empty request body")
-	}
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(dest); err != nil {
-		return errors.New("invalid JSON payload")
-	}
-	return nil
 }
 
 func extractIP(remoteAddr string) string {
