@@ -2,6 +2,8 @@
 /bin/
 /dist/
 /tmp/
+backups/
+*.sql.gz
 *.exe
 *.dll
 *.so
@@ -22,3 +24,11 @@ coverage.out
 Thumbs.db
 
 .codex
+
+# Frontend
+frontend/**/node_modules/
+frontend/**/dist/
+frontend/**/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
