@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"TG-delivery/internal/modules/delivery"
+
 	"TG-delivery/internal/domain/order"
 
 	"github.com/google/uuid"
@@ -19,6 +21,9 @@ var (
 	ErrCartNotFound           = errors.New("active cart not found")
 	ErrCartEmpty              = errors.New("cart is empty")
 	ErrCartRevalidationFailed = errors.New("cart revalidation failed")
+	ErrAddressNotFound        = errors.New("address not found")
+	ErrOutOfDeliveryZone      = errors.New("address is outside delivery zone")
+	ErrBelowMinOrder          = errors.New("cart total is below minimum order amount")
 )
 
 type CreateDraftInput struct {
@@ -52,11 +57,12 @@ type cartItemRow struct {
 }
 
 type Service struct {
-	db *pgxpool.Pool
+	db       *pgxpool.Pool
+	delivery *delivery.Service
 }
 
-func NewService(db *pgxpool.Pool) *Service {
-	return &Service{db: db}
+func NewService(db *pgxpool.Pool, deliveryService *delivery.Service) *Service {
+	return &Service{db: db, delivery: deliveryService}
 }
 
 func (s *Service) CreateOrderDraft(ctx context.Context, in CreateDraftInput) (Draft, error) {
@@ -143,6 +149,32 @@ func (s *Service) CreateOrderDraft(ctx context.Context, in CreateDraftInput) (Dr
 	}
 
 	deliveryFee := 0
+	var deliveryQuote *delivery.Quote
+	if in.AddressID != nil {
+		if s.delivery == nil {
+			return Draft{}, fmt.Errorf("delivery service is not configured")
+		}
+		quote, err := s.delivery.Quote(ctx, delivery.QuoteInput{
+			UserID:       in.UserID,
+			BranchID:     in.BranchID,
+			AddressID:    *in.AddressID,
+			CartSubtotal: subtotal,
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, delivery.ErrAddressNotFound):
+				return Draft{}, ErrAddressNotFound
+			case errors.Is(err, delivery.ErrOutOfZone):
+				return Draft{}, ErrOutOfDeliveryZone
+			case errors.Is(err, delivery.ErrBelowMinOrder):
+				return Draft{}, ErrBelowMinOrder
+			default:
+				return Draft{}, fmt.Errorf("calculate delivery quote: %w", err)
+			}
+		}
+		deliveryQuote = &quote
+		deliveryFee = quote.DeliveryFee
+	}
 	total := subtotal + deliveryFee
 
 	var addressSnapshot []byte
@@ -174,11 +206,16 @@ func (s *Service) CreateOrderDraft(ctx context.Context, in CreateDraftInput) (Dr
 		addressSnapshot = []byte(`{}`)
 	}
 
-	pricingSnapshot, err := json.Marshal(map[string]any{
+	pricingSnapshotMap := map[string]any{
 		"subtotal":     subtotal,
 		"delivery_fee": deliveryFee,
 		"total":        total,
-	})
+	}
+	if deliveryQuote != nil {
+		pricingSnapshotMap["delivery_quote"] = deliveryQuote
+	}
+
+	pricingSnapshot, err := json.Marshal(pricingSnapshotMap)
 	if err != nil {
 		return Draft{}, fmt.Errorf("marshal pricing snapshot: %w", err)
 	}

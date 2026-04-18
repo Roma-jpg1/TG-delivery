@@ -5,6 +5,10 @@
 - `GET /cart?user_id={uuid}`: active cart.
 - `POST /cart/items`: add/update item in active cart.
 - `DELETE /cart/items/{cartItemID}?user_id={uuid}`: remove item.
+- `GET /addresses?user_id={uuid}`: list user addresses.
+- `POST /addresses`: create/update address.
+- `DELETE /addresses/{addressID}?user_id={uuid}`: delete address.
+- `POST /delivery/quote`: validate zone/min order and calculate delivery fee.
 - `POST /checkout/draft`: create order draft from cart with server revalidation.
 - `POST /payments/sessions`: move order to pending payment and create payment session.
 - `POST /webhooks/payments/mock`: webhook ingestion endpoint (inbox dedup).
@@ -15,6 +19,9 @@
 - `PUT /branches/{branchID}/menu-items/{menuItemID}/availability`: set item availability.
 - `GET /orders/manual-review`: fetch problematic orders.
 - `POST /orders/{orderID}/manual-review/resolve`: resolve manual-review decision.
+- `GET /payments`: list payments with optional `branch_id`, `status`, `limit`.
+- `GET /refunds`: list refunds with optional `branch_id`, `status`, `limit`.
+- `POST /orders/{orderID}/refunds`: create manual refund request.
 
 ## Request consistency
 - Every request returns/accepts `X-Request-ID`.

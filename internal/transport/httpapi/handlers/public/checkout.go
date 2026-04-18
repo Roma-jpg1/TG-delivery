@@ -48,6 +48,12 @@ func (h *CheckoutHandler) CreateDraft(w http.ResponseWriter, r *http.Request) {
 			handlers.WriteError(w, http.StatusConflict, "cart is empty")
 		case errors.Is(err, checkout.ErrCartRevalidationFailed):
 			handlers.WriteError(w, http.StatusConflict, "cart revalidation failed")
+		case errors.Is(err, checkout.ErrAddressNotFound):
+			handlers.WriteError(w, http.StatusNotFound, "address not found")
+		case errors.Is(err, checkout.ErrOutOfDeliveryZone):
+			handlers.WriteError(w, http.StatusConflict, "address is outside delivery zone")
+		case errors.Is(err, checkout.ErrBelowMinOrder):
+			handlers.WriteError(w, http.StatusConflict, "cart total is below minimum order amount")
 		default:
 			handlers.WriteError(w, http.StatusInternalServerError, "failed to create checkout draft")
 		}

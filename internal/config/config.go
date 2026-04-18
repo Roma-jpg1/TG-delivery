@@ -37,6 +37,7 @@ type DatabaseConfig struct {
 type WorkerConfig struct {
 	OutboxPollInterval time.Duration
 	BatchSize          int
+	PaidTimeout        time.Duration
 }
 
 type SecurityConfig struct {
@@ -76,6 +77,7 @@ func Load() Config {
 		Worker: WorkerConfig{
 			OutboxPollInterval: getDurationEnv("WORKER_OUTBOX_POLL_INTERVAL", 2*time.Second),
 			BatchSize:          getIntEnv("WORKER_BATCH_SIZE", 100),
+			PaidTimeout:        getDurationEnv("WORKER_PAID_TIMEOUT", 10*time.Minute),
 		},
 		Security: SecurityConfig{
 			AdminToken: getEnv("ADMIN_TOKEN", "dev-admin-token"),

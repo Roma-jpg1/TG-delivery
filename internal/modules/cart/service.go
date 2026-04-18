@@ -199,6 +199,16 @@ func (s *Service) findOrCreateActiveCart(ctx context.Context, tx pgx.Tx, userID,
 		return cartID, nil
 	}
 
+	// For API-first onboarding, create a placeholder user row when client uses
+	// generated UUIDs before explicit profile registration.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users(id, is_active, created_at, updated_at)
+		VALUES ($1, true, now(), now())
+		ON CONFLICT (id) DO NOTHING
+	`, userID); err != nil {
+		return uuid.Nil, fmt.Errorf("ensure user exists: %w", err)
+	}
+
 	var currency string
 	err = tx.QueryRow(ctx, `
 		SELECT r.currency

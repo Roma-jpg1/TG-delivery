@@ -22,11 +22,13 @@
 ## Implemented baseline flow
 1. `GET /api/v1/menu/branches/{branchID}`
 2. `POST /api/v1/cart/items`
-3. `POST /api/v1/checkout/draft`
-4. `POST /api/v1/payments/sessions`
-5. `POST /api/v1/webhooks/payments/mock`
-6. worker processes inbox event and transitions order/payment states
-7. `POST /api/v1/webhooks/telegram` and worker handles `/start`, `/orders`, `pre_checkout_query`
+3. `POST /api/v1/addresses` and `POST /api/v1/delivery/quote`
+4. `POST /api/v1/checkout/draft` with delivery revalidation
+5. `POST /api/v1/payments/sessions`
+6. `POST /api/v1/webhooks/payments/mock`
+7. worker processes inbox event and transitions order/payment states
+8. worker runs payment reconciliation + refund processing + stale paid timeout handling
+9. `POST /api/v1/webhooks/telegram` and worker handles `/start`, `/orders`, `pre_checkout_query`
 
 ## Backend module boundaries
 - users

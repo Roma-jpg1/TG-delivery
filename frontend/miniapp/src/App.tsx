@@ -1,8 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
-import { createDraft, createPaymentSession, getCart, getMenu, getOrders, MenuItem, repeatOrder, upsertCartItem } from './api'
+import {
+  Address,
+  createDraft,
+  createPaymentSession,
+  getAddresses,
+  getCart,
+  getDeliveryQuote,
+  getMenu,
+  getOrders,
+  MenuItem,
+  repeatOrder,
+  upsertAddress,
+  upsertCartItem,
+} from './api'
 
 const DEFAULT_BRANCH_ID = import.meta.env.VITE_BRANCH_ID ?? '11111111-1111-1111-1111-111111111111'
 const DEFAULT_USER_ID = import.meta.env.VITE_USER_ID ?? '22222222-2222-2222-2222-222222222222'
+const DEFAULT_ADDRESS_LAT = Number(import.meta.env.VITE_DEFAULT_ADDRESS_LAT ?? '55.0415')
+const DEFAULT_ADDRESS_LON = Number(import.meta.env.VITE_DEFAULT_ADDRESS_LON ?? '82.9346')
 
 type CartState = {
   id: string
@@ -21,6 +36,9 @@ export function App() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [orders, setOrders] = useState<Array<{ order_id: string; order_number: number; status: string; total: number; currency: string }>>([])
+  const [addresses, setAddresses] = useState<Address[]>([])
+  const [selectedAddressId, setSelectedAddressId] = useState('')
+  const [deliveryInfo, setDeliveryInfo] = useState('')
 
   useEffect(() => {
     void refresh()
@@ -30,10 +48,18 @@ export function App() {
     setLoading(true)
     setError('')
     try {
-      const [menuItems, cartData, userOrders] = await Promise.all([getMenu(branchId), getCart(userId, branchId), getOrders(userId)])
+      const [menuItems, cartData, userOrders, userAddresses] = await Promise.all([
+        getMenu(branchId),
+        getCart(userId, branchId),
+        getOrders(userId),
+        getAddresses(userId),
+      ])
       setMenu(menuItems)
       setCart(cartData)
       setOrders(userOrders)
+      setAddresses(userAddresses)
+      const def = userAddresses.find((item) => item.is_default) ?? userAddresses[0]
+      setSelectedAddressId(def?.id ?? '')
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -74,7 +100,16 @@ export function App() {
     setError('')
     setSuccess('')
     try {
-      const draft = await createDraft(userId, branchId)
+      if (selectedAddressId && cart) {
+        const quote = await getDeliveryQuote({
+          user_id: userId,
+          branch_id: branchId,
+          address_id: selectedAddressId,
+          cart_subtotal: cart.total,
+        })
+        setDeliveryInfo(`Delivery fee: ${quote.delivery_fee}, distance: ${quote.distance_meters}m`)
+      }
+      const draft = await createDraft(userId, branchId, selectedAddressId || undefined)
       const session = await createPaymentSession(draft.order_id)
       setSuccess(`Draft ${draft.order_id} created. Session: ${session.provider_session_id}`)
       await refresh()
@@ -90,6 +125,26 @@ export function App() {
       await repeatOrder(orderId, userId)
       setSuccess(`Order ${orderId} repeated into active cart`)
       await refresh()
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  async function addDemoAddress() {
+    setError('')
+    try {
+      await upsertAddress({
+        user_id: userId,
+        label: 'Home',
+        city: 'Novosibirsk',
+        street: 'Krasny Prospekt',
+        house: '1',
+        latitude: DEFAULT_ADDRESS_LAT,
+        longitude: DEFAULT_ADDRESS_LON,
+        set_default: true,
+      })
+      await refresh()
+      setSuccess('Default address saved')
     } catch (e) {
       setError((e as Error).message)
     }
@@ -129,11 +184,34 @@ export function App() {
         {cart ? (
           <>
             <p>Total: {cart.total} {cart.currency}</p>
+            {deliveryInfo && <p>{deliveryInfo}</p>}
             <button onClick={checkout}>Checkout</button>
           </>
         ) : (
           <p>Cart is empty</p>
         )}
+      </section>
+
+      <section>
+        <h2>Addresses</h2>
+        {addresses.length === 0 ? <p>No addresses yet.</p> : (
+          <ul>
+            {addresses.map((a) => (
+              <li key={a.id}>
+                <label>
+                  <input
+                    type="radio"
+                    name="address"
+                    checked={selectedAddressId === a.id}
+                    onChange={() => setSelectedAddressId(a.id)}
+                  />
+                  {a.label || 'Address'}: {a.street} {a.house}
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
+        <button onClick={addDemoAddress}>Save default demo address</button>
       </section>
 
       <section>

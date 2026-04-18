@@ -19,6 +19,9 @@ This repository contains:
 - webhook inbox ingestion (`inbox_events`) + worker processing to move order/payment states
 - Telegram webhook ingestion + worker handling (`/start`, `/orders`, pre-checkout validation)
 - manual review admin endpoints
+- addresses API + delivery quote API
+- admin payment/refund APIs + manual refund request
+- worker reconciliation for paid orders and pending refunds
 - React Mini App scaffold (`frontend/miniapp`)
 - React Admin panel scaffold (`frontend/admin`)
 - docker compose for local infrastructure
@@ -35,6 +38,8 @@ This repository contains:
 5. Frontends:
    - Mini App dev server: `http://localhost:5173`
    - Admin dev server: `http://localhost:5174`
+6. Seed demo data:
+   - `make seed`
 
 ## Run modes
 Single binary supports two roles via `APP_ROLE`:
@@ -57,12 +62,19 @@ Single binary supports two roles via `APP_ROLE`:
 - `DELETE /api/v1/cart/items/{cartItemID}?user_id={uuid}&branch_id={uuid}`
 - `POST /api/v1/checkout/draft`
 - `POST /api/v1/payments/sessions`
+- `GET /api/v1/addresses?user_id={uuid}`
+- `POST /api/v1/addresses`
+- `DELETE /api/v1/addresses/{addressID}?user_id={uuid}`
+- `POST /api/v1/delivery/quote`
 - `POST /api/v1/webhooks/payments/mock` (header `X-Mock-Payment-Secret`)
 - `POST /api/v1/webhooks/telegram` (header `X-Telegram-Bot-Api-Secret-Token`)
 
 ## Manual review API
 - `GET /api/v1/admin/orders/manual-review`
 - `POST /api/v1/admin/orders/{orderID}/manual-review/resolve`
+- `GET /api/v1/admin/payments`
+- `GET /api/v1/admin/refunds`
+- `POST /api/v1/admin/orders/{orderID}/refunds`
 
 Admin endpoints require header `X-Admin-Token`.
 
@@ -77,6 +89,11 @@ Admin endpoints require header `X-Admin-Token`.
 - Restore: `make restore BACKUP=./backups/file.sql.gz`
 - See details: `docs/backup-restore.md`
 
+## Demo IDs
+- Branch: `11111111-1111-1111-1111-111111111111`
+- User: `22222222-2222-2222-2222-222222222222`
+- Seed script: `scripts/seed_demo.sql`
+
 ## Key folders
 - `internal/app` — API runtime
 - `internal/worker` — worker runtime
@@ -88,7 +105,7 @@ Admin endpoints require header `X-Admin-Token`.
 
 ## Next implementation milestones
 1. Real payment provider adapter (replace mock provider)
-2. Delivery/routing module and courier lifecycle
+2. Courier assignment lifecycle and external delivery providers
 3. Telegram bot command expansion (`/help`, support routing, deep links with campaign params)
 4. Full admin domain CRUD (menu/catalog/branches/users/RBAC UI)
 5. Production observability dashboards + SLO automation + incident automation

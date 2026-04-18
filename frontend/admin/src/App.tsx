@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getManualReviewOrders, getStopList, resolveManualReview, setAvailability } from './api'
+import { getManualReviewOrders, getPayments, getRefunds, getStopList, requestRefund, resolveManualReview, setAvailability } from './api'
 
 const DEFAULT_BRANCH_ID = import.meta.env.VITE_BRANCH_ID ?? '11111111-1111-1111-1111-111111111111'
 
@@ -7,6 +7,8 @@ export function App() {
   const [branchId] = useState(DEFAULT_BRANCH_ID)
   const [stopList, setStopList] = useState<any[]>([])
   const [manualReview, setManualReview] = useState<any[]>([])
+  const [payments, setPayments] = useState<any[]>([])
+  const [refunds, setRefunds] = useState<any[]>([])
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -16,9 +18,11 @@ export function App() {
   async function refresh() {
     setError('')
     try {
-      const [s, m] = await Promise.all([getStopList(branchId), getManualReviewOrders()])
+      const [s, m, p, rf] = await Promise.all([getStopList(branchId), getManualReviewOrders(), getPayments(), getRefunds()])
       setStopList(s)
       setManualReview(m)
+      setPayments(p)
+      setRefunds(rf)
     } catch (e) {
       setError((e as Error).message)
     }
@@ -36,6 +40,15 @@ export function App() {
   async function resolve(orderId: string, action: 'confirm' | 'cancel' | 'refund') {
     try {
       await resolveManualReview(orderId, action, `Admin action: ${action}`)
+      await refresh()
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  async function refund(orderId: string) {
+    try {
+      await requestRefund(orderId, 'Manual admin refund')
       await refresh()
     } catch (e) {
       setError((e as Error).message)
@@ -72,7 +85,30 @@ export function App() {
                 <button onClick={() => resolve(order.order_id, 'confirm')}>Confirm</button>
                 <button onClick={() => resolve(order.order_id, 'cancel')}>Cancel</button>
                 <button onClick={() => resolve(order.order_id, 'refund')}>Refund</button>
+                <button onClick={() => refund(order.order_id)}>Request refund</button>
               </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section>
+        <h2>Payments</h2>
+        <ul>
+          {payments.map((item) => (
+            <li key={item.payment_id}>
+              <strong>{item.status}</strong> — order {item.order_id} — {item.amount} {item.currency}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section>
+        <h2>Refunds</h2>
+        <ul>
+          {refunds.map((item) => (
+            <li key={item.id}>
+              <strong>{item.status}</strong> — order {item.order_id} — {item.amount} {item.currency}
             </li>
           ))}
         </ul>

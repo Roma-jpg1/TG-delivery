@@ -38,12 +38,82 @@ type Session struct {
 	CreatedAt         time.Time `json:"created_at"`
 }
 
+type Payment struct {
+	PaymentID         uuid.UUID `json:"payment_id"`
+	OrderID           uuid.UUID `json:"order_id"`
+	Provider          string    `json:"provider"`
+	ProviderPaymentID string    `json:"provider_payment_id,omitempty"`
+	ProviderSessionID string    `json:"provider_session_id,omitempty"`
+	Amount            int       `json:"amount"`
+	Currency          string    `json:"currency"`
+	Status            string    `json:"status"`
+	FailureReason     string    `json:"failure_reason,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+type ListFilter struct {
+	BranchID *uuid.UUID
+	Status   string
+	Limit    int
+}
+
 type Service struct {
 	db *pgxpool.Pool
 }
 
 func NewService(db *pgxpool.Pool) *Service {
 	return &Service{db: db}
+}
+
+func (s *Service) List(ctx context.Context, filter ListFilter) ([]Payment, error) {
+	if filter.Limit <= 0 || filter.Limit > 200 {
+		filter.Limit = 50
+	}
+
+	rows, err := s.db.Query(ctx, `
+		SELECT p.id, p.order_id, p.provider,
+		       COALESCE(p.provider_payment_id, ''),
+		       COALESCE(p.provider_session_id, ''),
+		       p.amount, p.currency, p.status::text,
+		       COALESCE(p.failure_reason, ''),
+		       p.created_at, p.updated_at
+		FROM payments p
+		JOIN orders o ON o.id = p.order_id
+		WHERE ($1::uuid IS NULL OR o.branch_id = $1)
+		  AND ($2::text = '' OR p.status::text = $2)
+		ORDER BY p.created_at DESC
+		LIMIT $3
+	`, filter.BranchID, filter.Status, filter.Limit)
+	if err != nil {
+		return nil, fmt.Errorf("query payments: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]Payment, 0, filter.Limit)
+	for rows.Next() {
+		var item Payment
+		if err := rows.Scan(
+			&item.PaymentID,
+			&item.OrderID,
+			&item.Provider,
+			&item.ProviderPaymentID,
+			&item.ProviderSessionID,
+			&item.Amount,
+			&item.Currency,
+			&item.Status,
+			&item.FailureReason,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan payment: %w", err)
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate payments: %w", err)
+	}
+	return out, nil
 }
 
 func (s *Service) CreateSession(ctx context.Context, in CreateSessionInput) (Session, error) {

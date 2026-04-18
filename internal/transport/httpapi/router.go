@@ -20,11 +20,15 @@ import (
 type Dependencies struct {
 	AvailabilityHandler *adminhandlers.AvailabilityHandler
 	OrdersHandler       *adminhandlers.OrdersHandler
+	AdminPayments       *adminhandlers.PaymentsHandler
+	AdminRefunds        *adminhandlers.RefundsHandler
 	MenuHandler         *publichandlers.MenuHandler
 	CartHandler         *publichandlers.CartHandler
 	CheckoutHandler     *publichandlers.CheckoutHandler
 	PaymentsHandler     *publichandlers.PaymentsHandler
 	OrdersPublicHandler *publichandlers.OrdersHandler
+	AddressesHandler    *publichandlers.AddressesHandler
+	DeliveryHandler     *publichandlers.DeliveryHandler
 	MockPaymentWebhook  *webhookhandlers.MockPaymentHandler
 	TelegramWebhook     *webhookhandlers.TelegramHandler
 }
@@ -74,8 +78,16 @@ func NewRouter(cfg config.Config, logger *slog.Logger, checkDB func() error, dep
 			api.Get("/orders", deps.OrdersPublicHandler.ListUserOrders)
 			api.Post("/orders/{orderID}/repeat", deps.OrdersPublicHandler.RepeatOrder)
 		}
+		if deps.AddressesHandler != nil {
+			api.Get("/addresses", deps.AddressesHandler.List)
+			api.Post("/addresses", deps.AddressesHandler.Upsert)
+			api.Delete("/addresses/{addressID}", deps.AddressesHandler.Delete)
+		}
+		if deps.DeliveryHandler != nil {
+			api.Post("/delivery/quote", deps.DeliveryHandler.Quote)
+		}
 
-		if deps.AvailabilityHandler != nil || deps.OrdersHandler != nil {
+		if deps.AvailabilityHandler != nil || deps.OrdersHandler != nil || deps.AdminPayments != nil || deps.AdminRefunds != nil {
 			api.Route("/admin", func(admin chi.Router) {
 				admin.Use(middleware.RequireAdminToken(cfg.Security.AdminToken))
 				if deps.AvailabilityHandler != nil {
@@ -85,6 +97,13 @@ func NewRouter(cfg config.Config, logger *slog.Logger, checkDB func() error, dep
 				if deps.OrdersHandler != nil {
 					admin.Get("/orders/manual-review", deps.OrdersHandler.ListManualReview)
 					admin.Post("/orders/{orderID}/manual-review/resolve", deps.OrdersHandler.ResolveManualReview)
+				}
+				if deps.AdminPayments != nil {
+					admin.Get("/payments", deps.AdminPayments.List)
+				}
+				if deps.AdminRefunds != nil {
+					admin.Get("/refunds", deps.AdminRefunds.List)
+					admin.Post("/orders/{orderID}/refunds", deps.AdminRefunds.Request)
 				}
 			})
 		}

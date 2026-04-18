@@ -1,4 +1,4 @@
-.PHONY: up down logs test build tidy miniapp-dev admin-dev backup restore
+.PHONY: up down logs test build tidy miniapp-dev admin-dev backup restore seed
 
 up:
 	docker compose up -d --build
@@ -30,3 +30,6 @@ backup:
 restore:
 	@echo "Usage: make restore BACKUP=./backups/file.sql.gz"
 	@test -n "$(BACKUP)" && ./scripts/restore.sh "$(BACKUP)" || true
+
+seed:
+	./scripts/seed.sh ./scripts/seed_demo.sql

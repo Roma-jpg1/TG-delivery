@@ -50,11 +50,67 @@ export async function upsertCartItem(userId: string, branchId: string, menuItemI
   return data.cart as Cart
 }
 
-export async function createDraft(userId: string, branchId: string): Promise<{ order_id: string }> {
+export type Address = {
+  id: string
+  user_id: string
+  label: string
+  city: string
+  street: string
+  house: string
+  latitude: number
+  longitude: number
+  is_default: boolean
+}
+
+export async function getAddresses(userId: string): Promise<Address[]> {
+  const resp = await fetch(`${API_BASE}/addresses?user_id=${userId}`)
+  if (!resp.ok) throw new Error('failed to load addresses')
+  const data = await resp.json()
+  return data.items as Address[]
+}
+
+export async function upsertAddress(payload: {
+  address_id?: string
+  user_id: string
+  label: string
+  city: string
+  street: string
+  house: string
+  latitude: number
+  longitude: number
+  set_default: boolean
+}): Promise<Address> {
+  const resp = await fetch(`${API_BASE}/addresses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!resp.ok) throw new Error('failed to save address')
+  const data = await resp.json()
+  return data.address as Address
+}
+
+export async function getDeliveryQuote(payload: {
+  user_id: string
+  branch_id: string
+  address_id: string
+  cart_subtotal: number
+}): Promise<{ delivery_fee: number; distance_meters: number }> {
+  const resp = await fetch(`${API_BASE}/delivery/quote`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!resp.ok) throw new Error('failed to calculate delivery')
+  const data = await resp.json()
+  return data.quote
+}
+
+export async function createDraft(userId: string, branchId: string, addressId?: string): Promise<{ order_id: string }> {
   const resp = await fetch(`${API_BASE}/checkout/draft`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: userId, branch_id: branchId }),
+    body: JSON.stringify({ user_id: userId, branch_id: branchId, address_id: addressId ?? null }),
   })
   if (!resp.ok) throw new Error('failed to create draft')
   const data = await resp.json()

@@ -9,12 +9,15 @@ import (
 	"time"
 
 	"TG-delivery/internal/config"
+	"TG-delivery/internal/modules/addresses"
 	"TG-delivery/internal/modules/availability"
 	"TG-delivery/internal/modules/cart"
 	"TG-delivery/internal/modules/checkout"
+	"TG-delivery/internal/modules/delivery"
 	"TG-delivery/internal/modules/menu"
 	"TG-delivery/internal/modules/orders"
 	"TG-delivery/internal/modules/payments"
+	"TG-delivery/internal/modules/refunds"
 	webhooksmodule "TG-delivery/internal/modules/webhooks"
 	"TG-delivery/internal/observability"
 	"TG-delivery/internal/storage/postgres"
@@ -42,13 +45,19 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	availabilityRepo := availability.NewPostgresRepository(db)
 	availabilityService := availability.NewService(availabilityRepo)
 	availabilityHandler := adminhandlers.NewAvailabilityHandler(availabilityService)
+	deliveryService := delivery.NewService(db)
 	menuHandler := publichandlers.NewMenuHandler(menu.NewService(db))
 	cartHandler := publichandlers.NewCartHandler(cart.NewService(db))
-	checkoutHandler := publichandlers.NewCheckoutHandler(checkout.NewService(db))
-	paymentsHandler := publichandlers.NewPaymentsHandler(payments.NewService(db))
+	checkoutHandler := publichandlers.NewCheckoutHandler(checkout.NewService(db, deliveryService))
+	paymentsService := payments.NewService(db)
+	paymentsHandler := publichandlers.NewPaymentsHandler(paymentsService)
 	ordersService := orders.NewService(db)
 	ordersHandler := adminhandlers.NewOrdersHandler(ordersService)
 	ordersPublicHandler := publichandlers.NewOrdersHandler(ordersService)
+	addressesHandler := publichandlers.NewAddressesHandler(addresses.NewService(db))
+	deliveryHandler := publichandlers.NewDeliveryHandler(deliveryService)
+	paymentsAdminHandler := adminhandlers.NewPaymentsHandler(paymentsService)
+	refundsAdminHandler := adminhandlers.NewRefundsHandler(refunds.NewService(db))
 	mockWebhookHandler := webhookhandlers.NewMockPaymentHandler(webhooksmodule.NewMockPaymentService(db, cfg.Webhooks.MockPaymentSecret))
 	telegramWebhookHandler := webhookhandlers.NewTelegramHandler(webhooksmodule.NewTelegramService(db, cfg.Webhooks.TelegramSecret))
 	metrics := observability.NewMetrics()
@@ -63,6 +72,10 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		CheckoutHandler:     checkoutHandler,
 		PaymentsHandler:     paymentsHandler,
 		OrdersPublicHandler: ordersPublicHandler,
+		AddressesHandler:    addressesHandler,
+		DeliveryHandler:     deliveryHandler,
+		AdminPayments:       paymentsAdminHandler,
+		AdminRefunds:        refundsAdminHandler,
 		MockPaymentWebhook:  mockWebhookHandler,
 		TelegramWebhook:     telegramWebhookHandler,
 	}, metrics)

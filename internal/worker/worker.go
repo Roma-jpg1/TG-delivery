@@ -71,6 +71,15 @@ func (w *Worker) Run(ctx context.Context) error {
 			if err := w.processInboxBatch(ctx, w.cfg.Worker.BatchSize); err != nil {
 				w.logger.Error("process inbox batch failed", "error", err)
 			}
+			if err := w.reconcileSucceededPayments(ctx, w.cfg.Worker.BatchSize); err != nil {
+				w.logger.Error("payments reconciliation failed", "error", err)
+			}
+			if err := w.processPendingRefunds(ctx, w.cfg.Worker.BatchSize); err != nil {
+				w.logger.Error("process pending refunds failed", "error", err)
+			}
+			if err := w.moveStalePaidOrdersToManualReview(ctx, w.cfg.Worker.BatchSize, w.cfg.Worker.PaidTimeout); err != nil {
+				w.logger.Error("move stale paid orders to manual review failed", "error", err)
+			}
 			if err := w.processOutboxBatch(ctx, w.cfg.Worker.BatchSize); err != nil {
 				w.logger.Error("process outbox batch failed", "error", err)
 			}
@@ -686,12 +695,342 @@ func (w *Worker) dispatchOutboxEvent(ctx context.Context, eventType, aggregateTy
 		text = fmt.Sprintf("Заказ #%d оплачен. Передаём на кухню.", orderNumber)
 	case "ManualReviewResolved":
 		text = fmt.Sprintf("Заказ #%d обновлён оператором. Текущий статус: %s", orderNumber, status)
+	case "OrderManualReviewRequired":
+		text = fmt.Sprintf("Заказ #%d требует ручной проверки оператором.", orderNumber)
+	case "RefundSucceeded":
+		text = fmt.Sprintf("Возврат по заказу #%d завершён.", orderNumber)
 	}
 
 	if err := w.bot.SendMessage(ctx, chatID, text); err != nil {
 		return fmt.Errorf("send telegram notification: %w", err)
 	}
 
+	return nil
+}
+
+func (w *Worker) reconcileSucceededPayments(ctx context.Context, batchSize int) error {
+	rows, err := w.db.Query(ctx, `
+		SELECT p.order_id
+		FROM payments p
+		JOIN orders o ON o.id = p.order_id
+		WHERE p.status = 'succeeded'
+		  AND o.status IN ('pending_payment', 'payment_processing')
+		ORDER BY p.updated_at
+		LIMIT $1
+	`, batchSize)
+	if err != nil {
+		return fmt.Errorf("query reconciliation candidates: %w", err)
+	}
+	defer rows.Close()
+
+	orderIDs := make([]uuid.UUID, 0, batchSize)
+	for rows.Next() {
+		var orderID uuid.UUID
+		if err := rows.Scan(&orderID); err != nil {
+			return fmt.Errorf("scan reconciliation order id: %w", err)
+		}
+		orderIDs = append(orderIDs, orderID)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate reconciliation rows: %w", err)
+	}
+
+	for _, orderID := range orderIDs {
+		tx, err := w.db.BeginTx(ctx, pgx.TxOptions{})
+		if err != nil {
+			return fmt.Errorf("begin reconciliation tx: %w", err)
+		}
+		if err := w.moveOrderToPaid(ctx, tx, orderID); err != nil {
+			_ = tx.Rollback(ctx)
+			w.logger.Warn("reconciliation move to paid failed", "order_id", orderID, "error", err)
+			continue
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit reconciliation tx: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (w *Worker) processPendingRefunds(ctx context.Context, batchSize int) error {
+	rows, err := w.db.Query(ctx, `
+		SELECT id
+		FROM refunds
+		WHERE status = 'pending'
+		ORDER BY created_at
+		LIMIT $1
+	`, batchSize)
+	if err != nil {
+		return fmt.Errorf("query pending refunds: %w", err)
+	}
+	defer rows.Close()
+
+	refundIDs := make([]uuid.UUID, 0, batchSize)
+	for rows.Next() {
+		var refundID uuid.UUID
+		if err := rows.Scan(&refundID); err != nil {
+			return fmt.Errorf("scan pending refund id: %w", err)
+		}
+		refundIDs = append(refundIDs, refundID)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate pending refunds: %w", err)
+	}
+
+	for _, refundID := range refundIDs {
+		if err := w.processSinglePendingRefund(ctx, refundID); err != nil {
+			w.logger.Warn("pending refund processing failed", "refund_id", refundID, "error", err)
+		}
+	}
+
+	return nil
+}
+
+func (w *Worker) processSinglePendingRefund(ctx context.Context, refundID uuid.UUID) error {
+	tx, err := w.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin refund tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var (
+		orderID     uuid.UUID
+		paymentID   uuid.UUID
+		status      string
+		orderStatus order.Status
+	)
+
+	err = tx.QueryRow(ctx, `
+		SELECT r.order_id, r.payment_id, r.status::text, o.status::text
+		FROM refunds r
+		JOIN orders o ON o.id = r.order_id
+		WHERE r.id = $1
+		FOR UPDATE
+	`, refundID).Scan(&orderID, &paymentID, &status, &orderStatus)
+	if err != nil {
+		return fmt.Errorf("load refund for processing: %w", err)
+	}
+	if status != "pending" {
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit non-pending refund tx: %w", err)
+		}
+		return nil
+	}
+
+	providerRefundID := fmt.Sprintf("mockrefund_%s", uuid.NewString())
+	_, err = tx.Exec(ctx, `
+		UPDATE refunds
+		SET status = 'succeeded',
+		    provider_refund_id = $2,
+		    updated_at = now(),
+		    raw_payload = jsonb_set(raw_payload, '{processed_by}', '\"worker\"'::jsonb, true)
+		WHERE id = $1
+	`, refundID, providerRefundID)
+	if err != nil {
+		return fmt.Errorf("update refund to succeeded: %w", err)
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE payments
+		SET status = CASE WHEN status = 'succeeded' THEN 'refunded' ELSE status END,
+		    updated_at = now(),
+		    version = version + 1
+		WHERE id = $1
+	`, paymentID)
+	if err != nil {
+		return fmt.Errorf("update payment refunded status: %w", err)
+	}
+
+	if orderStatus != order.StatusRefunded {
+		target := order.StatusRefunded
+		if err := order.ValidateTransition(orderStatus, target); err != nil {
+			target = order.StatusManualReview
+		}
+
+		_, err = tx.Exec(ctx, `
+			UPDATE orders
+			SET status = $2::order_status,
+			    updated_at = now(),
+			    version = version + 1
+			WHERE id = $1
+		`, orderID, target)
+		if err != nil {
+			return fmt.Errorf("update order after refund: %w", err)
+		}
+
+		_, err = tx.Exec(ctx, `
+			INSERT INTO order_status_history (
+				order_id, from_status, to_status, reason, actor_type, metadata, created_at
+			)
+			VALUES ($1, $2::order_status, $3::order_status, 'refund_processed_by_worker', 'system', '{}'::jsonb, now())
+		`, orderID, orderStatus, target)
+		if err != nil {
+			return fmt.Errorf("insert refund status history: %w", err)
+		}
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO outbox_events (
+			aggregate_type, aggregate_id, event_type, payload, headers, created_at
+		)
+		VALUES (
+			'refund', $1, 'RefundSucceeded',
+			jsonb_build_object('refund_id', $1::text, 'order_id', $2::text),
+			'{}'::jsonb, now()
+		)
+	`, refundID, orderID)
+	if err != nil {
+		return fmt.Errorf("insert refund succeeded outbox event: %w", err)
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE saga_instances
+		SET status = CASE
+			WHEN status IN ('compensating', 'running', 'manual_review') THEN 'compensated'::saga_status
+			ELSE status
+		END,
+		    current_step = 'refund_succeeded',
+		    updated_at = now(),
+		    finished_at = now()
+		WHERE saga_type = 'order_checkout'
+		  AND entity_type = 'order'
+		  AND entity_id = $1
+	`, orderID)
+	if err != nil {
+		return fmt.Errorf("update saga after refund: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit refund tx: %w", err)
+	}
+	return nil
+}
+
+func (w *Worker) moveStalePaidOrdersToManualReview(ctx context.Context, batchSize int, paidTimeout time.Duration) error {
+	if paidTimeout <= 0 {
+		return nil
+	}
+
+	rows, err := w.db.Query(ctx, `
+		SELECT id
+		FROM orders
+		WHERE status = 'paid'
+		  AND updated_at <= now() - ($1 * interval '1 second')
+		ORDER BY updated_at
+		LIMIT $2
+	`, int(paidTimeout.Seconds()), batchSize)
+	if err != nil {
+		return fmt.Errorf("query stale paid orders: %w", err)
+	}
+	defer rows.Close()
+
+	orderIDs := make([]uuid.UUID, 0, batchSize)
+	for rows.Next() {
+		var orderID uuid.UUID
+		if err := rows.Scan(&orderID); err != nil {
+			return fmt.Errorf("scan stale paid order id: %w", err)
+		}
+		orderIDs = append(orderIDs, orderID)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate stale paid orders: %w", err)
+	}
+
+	for _, orderID := range orderIDs {
+		if err := w.markOrderManualReviewByTimeout(ctx, orderID, paidTimeout); err != nil {
+			w.logger.Warn("mark order manual review by timeout failed", "order_id", orderID, "error", err)
+		}
+	}
+
+	return nil
+}
+
+func (w *Worker) markOrderManualReviewByTimeout(ctx context.Context, orderID uuid.UUID, timeout time.Duration) error {
+	tx, err := w.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin stale-paid tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var current order.Status
+	err = tx.QueryRow(ctx, `SELECT status::text FROM orders WHERE id = $1 FOR UPDATE`, orderID).Scan(&current)
+	if err != nil {
+		return fmt.Errorf("load stale paid order: %w", err)
+	}
+	if current != order.StatusPaid {
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit stale-paid noop tx: %w", err)
+		}
+		return nil
+	}
+
+	if err := order.ValidateTransition(current, order.StatusManualReview); err != nil {
+		return nil
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE orders
+		SET status = 'manual_review',
+		    updated_at = now(),
+		    version = version + 1
+		WHERE id = $1
+	`, orderID)
+	if err != nil {
+		return fmt.Errorf("update stale paid order to manual_review: %w", err)
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO order_status_history (
+			order_id, from_status, to_status, reason, actor_type, metadata, created_at
+		)
+		VALUES (
+			$1, 'paid', 'manual_review', 'paid_timeout_manual_review', 'system',
+			jsonb_build_object('timeout', $2),
+			now()
+		)
+	`, orderID, timeout.String())
+	if err != nil {
+		return fmt.Errorf("insert stale paid manual review history: %w", err)
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO outbox_events (
+			aggregate_type, aggregate_id, event_type, payload, headers, created_at
+		)
+		VALUES (
+			'order', $1, 'OrderManualReviewRequired',
+			jsonb_build_object('order_id', $1::text, 'reason', 'paid_timeout'),
+			'{}'::jsonb, now()
+		)
+	`, orderID)
+	if err != nil {
+		return fmt.Errorf("insert order manual review outbox event: %w", err)
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO saga_instances (
+			saga_type, entity_type, entity_id, status, current_step, last_error, started_at, created_at, updated_at
+		)
+		VALUES (
+			'order_checkout', 'order', $1, 'manual_review', 'paid_timeout',
+			'order remained paid without confirmation',
+			now(), now(), now()
+		)
+		ON CONFLICT (saga_type, entity_type, entity_id)
+		DO UPDATE SET
+			status = 'manual_review',
+			current_step = 'paid_timeout',
+			last_error = 'order remained paid without confirmation',
+			updated_at = now()
+	`, orderID)
+	if err != nil {
+		return fmt.Errorf("upsert saga manual review on timeout: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit stale-paid tx: %w", err)
+	}
 	return nil
 }
 
