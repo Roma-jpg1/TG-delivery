@@ -16,6 +16,7 @@ import (
 	"TG-delivery/internal/modules/orders"
 	"TG-delivery/internal/modules/payments"
 	webhooksmodule "TG-delivery/internal/modules/webhooks"
+	"TG-delivery/internal/observability"
 	"TG-delivery/internal/storage/postgres"
 	"TG-delivery/internal/transport/httpapi"
 	adminhandlers "TG-delivery/internal/transport/httpapi/handlers/admin"
@@ -45,9 +46,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	cartHandler := publichandlers.NewCartHandler(cart.NewService(db))
 	checkoutHandler := publichandlers.NewCheckoutHandler(checkout.NewService(db))
 	paymentsHandler := publichandlers.NewPaymentsHandler(payments.NewService(db))
-	ordersHandler := adminhandlers.NewOrdersHandler(orders.NewService(db))
+	ordersService := orders.NewService(db)
+	ordersHandler := adminhandlers.NewOrdersHandler(ordersService)
+	ordersPublicHandler := publichandlers.NewOrdersHandler(ordersService)
 	mockWebhookHandler := webhookhandlers.NewMockPaymentHandler(webhooksmodule.NewMockPaymentService(db, cfg.Webhooks.MockPaymentSecret))
 	telegramWebhookHandler := webhookhandlers.NewTelegramHandler(webhooksmodule.NewTelegramService(db, cfg.Webhooks.TelegramSecret))
+	metrics := observability.NewMetrics()
 
 	router := httpapi.NewRouter(cfg, logger, func() error {
 		return postgres.Ping(context.Background(), db, cfg.Database.HealthcheckTimeout)
@@ -58,9 +62,10 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		CartHandler:         cartHandler,
 		CheckoutHandler:     checkoutHandler,
 		PaymentsHandler:     paymentsHandler,
+		OrdersPublicHandler: ordersPublicHandler,
 		MockPaymentWebhook:  mockWebhookHandler,
 		TelegramWebhook:     telegramWebhookHandler,
-	})
+	}, metrics)
 
 	httpServer := &http.Server{
 		Addr:         cfg.HTTP.Address,

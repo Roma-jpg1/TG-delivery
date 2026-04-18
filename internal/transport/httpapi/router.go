@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"TG-delivery/internal/config"
+	"TG-delivery/internal/observability"
 	"TG-delivery/internal/transport/httpapi/handlers"
 	adminhandlers "TG-delivery/internal/transport/httpapi/handlers/admin"
 	publichandlers "TG-delivery/internal/transport/httpapi/handlers/public"
@@ -23,15 +24,18 @@ type Dependencies struct {
 	CartHandler         *publichandlers.CartHandler
 	CheckoutHandler     *publichandlers.CheckoutHandler
 	PaymentsHandler     *publichandlers.PaymentsHandler
+	OrdersPublicHandler *publichandlers.OrdersHandler
 	MockPaymentWebhook  *webhookhandlers.MockPaymentHandler
 	TelegramWebhook     *webhookhandlers.TelegramHandler
 }
 
-func NewRouter(cfg config.Config, logger *slog.Logger, checkDB func() error, deps Dependencies) http.Handler {
+func NewRouter(cfg config.Config, logger *slog.Logger, checkDB func() error, deps Dependencies, metrics *observability.Metrics) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.Timeout(30 * time.Second))
+	r.Use(middleware.CORS)
 	r.Use(middleware.RequestID)
+	r.Use(middleware.HTTPMetrics(metrics))
 	r.Use(middleware.AccessLog(logger))
 
 	health := handlers.HealthHandler{
@@ -42,6 +46,9 @@ func NewRouter(cfg config.Config, logger *slog.Logger, checkDB func() error, dep
 	r.Get("/health/live", health.Liveness)
 	r.Get("/health/ready", health.Readiness)
 	r.Get("/health", health.Readiness)
+	if metrics != nil {
+		r.Handle("/metrics", metrics)
+	}
 
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Get("/ping", func(w http.ResponseWriter, _ *http.Request) {
@@ -62,6 +69,10 @@ func NewRouter(cfg config.Config, logger *slog.Logger, checkDB func() error, dep
 		}
 		if deps.PaymentsHandler != nil {
 			api.Post("/payments/sessions", deps.PaymentsHandler.CreateSession)
+		}
+		if deps.OrdersPublicHandler != nil {
+			api.Get("/orders", deps.OrdersPublicHandler.ListUserOrders)
+			api.Post("/orders/{orderID}/repeat", deps.OrdersPublicHandler.RepeatOrder)
 		}
 
 		if deps.AvailabilityHandler != nil || deps.OrdersHandler != nil {

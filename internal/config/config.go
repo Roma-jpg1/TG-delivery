@@ -16,6 +16,7 @@ type Config struct {
 	Worker      WorkerConfig
 	Security    SecurityConfig
 	Webhooks    WebhookConfig
+	Telegram    TelegramConfig
 }
 
 type HTTPConfig struct {
@@ -47,6 +48,12 @@ type WebhookConfig struct {
 	TelegramSecret    string
 }
 
+type TelegramConfig struct {
+	BotToken   string
+	BotAPIBase string
+	MiniAppURL string
+}
+
 func Load() Config {
 	return Config{
 		ServiceName: getEnv("SERVICE_NAME", "tg-delivery"),
@@ -76,6 +83,11 @@ func Load() Config {
 		Webhooks: WebhookConfig{
 			MockPaymentSecret: getEnv("MOCK_PAYMENT_WEBHOOK_SECRET", "dev-mock-payment-secret"),
 			TelegramSecret:    getEnv("TELEGRAM_WEBHOOK_SECRET", "dev-telegram-secret"),
+		},
+		Telegram: TelegramConfig{
+			BotToken:   getEnv("TELEGRAM_BOT_TOKEN", ""),
+			BotAPIBase: getEnv("TELEGRAM_BOT_API_BASE", "https://api.telegram.org"),
+			MiniAppURL: getEnv("TELEGRAM_MINI_APP_URL", "https://miniapp.example.com"),
 		},
 	}
 }

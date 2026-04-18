@@ -18,6 +18,7 @@ import (
 var (
 	ErrOrderNotFound = errors.New("order not found")
 	ErrInvalidAction = errors.New("invalid manual review action")
+	ErrRepeatFailed  = errors.New("order repeat failed")
 )
 
 type ManualReviewOrder struct {
@@ -44,6 +45,22 @@ type ResolveResult struct {
 	OrderID   uuid.UUID `json:"order_id"`
 	Status    string    `json:"status"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type UserOrder struct {
+	OrderID     uuid.UUID `json:"order_id"`
+	OrderNumber int64     `json:"order_number"`
+	BranchID    uuid.UUID `json:"branch_id"`
+	Status      string    `json:"status"`
+	Total       int       `json:"total"`
+	Currency    string    `json:"currency"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type RepeatOrderResult struct {
+	CartID       uuid.UUID `json:"cart_id"`
+	AddedItems   int       `json:"added_items"`
+	SkippedItems int       `json:"skipped_items"`
 }
 
 type Service struct {
@@ -247,4 +264,169 @@ func (s *Service) ResolveManualReview(ctx context.Context, in ResolveManualRevie
 	}
 
 	return ResolveResult{OrderID: in.OrderID, Status: string(target), UpdatedAt: updatedAt}, nil
+}
+
+func (s *Service) ListUserOrders(ctx context.Context, userID uuid.UUID, limit int) ([]UserOrder, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	rows, err := s.db.Query(ctx, `
+		SELECT id, order_number, branch_id, status::text, total, currency, created_at
+		FROM orders
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2
+	`, userID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query user orders: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]UserOrder, 0, limit)
+	for rows.Next() {
+		var item UserOrder
+		if err := rows.Scan(&item.OrderID, &item.OrderNumber, &item.BranchID, &item.Status, &item.Total, &item.Currency, &item.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan user order: %w", err)
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate user orders: %w", err)
+	}
+	return result, nil
+}
+
+func (s *Service) RepeatOrder(ctx context.Context, userID, orderID uuid.UUID) (RepeatOrderResult, error) {
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return RepeatOrderResult{}, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var branchID uuid.UUID
+	var currency string
+	err = tx.QueryRow(ctx, `
+		SELECT branch_id, currency
+		FROM orders
+		WHERE id = $1 AND user_id = $2
+	`, orderID, userID).Scan(&branchID, &currency)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return RepeatOrderResult{}, ErrOrderNotFound
+		}
+		return RepeatOrderResult{}, fmt.Errorf("load source order: %w", err)
+	}
+
+	var cartID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		SELECT id
+		FROM carts
+		WHERE user_id = $1 AND branch_id = $2 AND status = 'active'
+		ORDER BY updated_at DESC
+		LIMIT 1
+		FOR UPDATE
+	`, userID, branchID).Scan(&cartID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = tx.QueryRow(ctx, `
+				INSERT INTO carts (
+					user_id, branch_id, status, currency,
+					subtotal, discount_total, delivery_fee, total,
+					created_at, updated_at
+				)
+				VALUES ($1, $2, 'active', $3, 0, 0, 0, 0, now(), now())
+				RETURNING id
+			`, userID, branchID, currency).Scan(&cartID)
+			if err != nil {
+				return RepeatOrderResult{}, fmt.Errorf("create active cart for repeat: %w", err)
+			}
+		} else {
+			return RepeatOrderResult{}, fmt.Errorf("load active cart for repeat: %w", err)
+		}
+	}
+
+	_, err = tx.Exec(ctx, `DELETE FROM cart_items WHERE cart_id = $1`, cartID)
+	if err != nil {
+		return RepeatOrderResult{}, fmt.Errorf("clear active cart before repeat: %w", err)
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT oi.menu_item_id, oi.quantity
+		FROM order_items oi
+		WHERE oi.order_id = $1
+	`, orderID)
+	if err != nil {
+		return RepeatOrderResult{}, fmt.Errorf("load source order items: %w", err)
+	}
+	defer rows.Close()
+
+	added := 0
+	skipped := 0
+	for rows.Next() {
+		var menuItemID uuid.UUID
+		var qty int
+		if err := rows.Scan(&menuItemID, &qty); err != nil {
+			return RepeatOrderResult{}, fmt.Errorf("scan source order item: %w", err)
+		}
+
+		var branchMenuItemID uuid.UUID
+		var price int
+		var status string
+		err = tx.QueryRow(ctx, `
+			SELECT id, price, status::text
+			FROM branch_menu_items
+			WHERE branch_id = $1 AND menu_item_id = $2
+		`, branchID, menuItemID).Scan(&branchMenuItemID, &price, &status)
+		if err != nil || status != "available" {
+			skipped++
+			continue
+		}
+
+		_, err = tx.Exec(ctx, `
+			INSERT INTO cart_items (
+				cart_id, menu_item_id, branch_menu_item_id,
+				quantity, unit_price, options, created_at, updated_at
+			)
+			VALUES ($1, $2, $3, $4, $5, '[]'::jsonb, now(), now())
+		`, cartID, menuItemID, branchMenuItemID, qty, price)
+		if err != nil {
+			return RepeatOrderResult{}, fmt.Errorf("insert repeated cart item: %w", err)
+		}
+		added++
+	}
+	if err := rows.Err(); err != nil {
+		return RepeatOrderResult{}, fmt.Errorf("iterate source order items: %w", err)
+	}
+
+	if added == 0 {
+		return RepeatOrderResult{}, ErrRepeatFailed
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE carts c
+		SET subtotal = x.subtotal,
+		    total = x.subtotal - c.discount_total + c.delivery_fee,
+		    updated_at = now()
+		FROM (
+			SELECT cart_id, COALESCE(SUM(quantity * unit_price), 0) AS subtotal
+			FROM cart_items
+			WHERE cart_id = $1
+			GROUP BY cart_id
+		) x
+		WHERE c.id = x.cart_id
+	`, cartID)
+	if err != nil {
+		return RepeatOrderResult{}, fmt.Errorf("recalculate repeated cart totals: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return RepeatOrderResult{}, fmt.Errorf("commit repeat order: %w", err)
+	}
+
+	return RepeatOrderResult{
+		CartID:       cartID,
+		AddedItems:   added,
+		SkippedItems: skipped,
+	}, nil
 }

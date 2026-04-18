@@ -8,6 +8,7 @@
 - `POST /checkout/draft`: create order draft from cart with server revalidation.
 - `POST /payments/sessions`: move order to pending payment and create payment session.
 - `POST /webhooks/payments/mock`: webhook ingestion endpoint (inbox dedup).
+- `POST /webhooks/telegram`: Telegram update ingestion endpoint (inbox dedup).
 
 ## Admin API (`/api/v1/admin`)
 - `GET /branches/{branchID}/stop-list`: stop-list list (optional `status`).
@@ -18,3 +19,4 @@
 ## Request consistency
 - Every request returns/accepts `X-Request-ID`.
 - All write operations include audit trail metadata in DB (`audit_log`).
+- Service metrics are exposed at `GET /metrics`.

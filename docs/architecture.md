@@ -16,6 +16,8 @@
 - Go worker service (outbox/saga/webhook processing)
 - PostgreSQL
 - Admin panel via API
+- Mini App frontend (React/Vite)
+- Admin frontend (React/Vite)
 
 ## Implemented baseline flow
 1. `GET /api/v1/menu/branches/{branchID}`
@@ -24,6 +26,7 @@
 4. `POST /api/v1/payments/sessions`
 5. `POST /api/v1/webhooks/payments/mock`
 6. worker processes inbox event and transitions order/payment states
+7. `POST /api/v1/webhooks/telegram` and worker handles `/start`, `/orders`, `pre_checkout_query`
 
 ## Backend module boundaries
 - users
