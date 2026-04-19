@@ -224,8 +224,8 @@ func (s *Service) CreateSession(ctx context.Context, in CreateSessionInput) (Ses
 		)
 		VALUES (
 			$1, $2, $3, $4, $5, $6, $7, 'pending',
-			jsonb_build_object('request_id', $8),
-			jsonb_build_object('checkout_url', $9),
+			jsonb_build_object('request_id', $8::text),
+			jsonb_build_object('checkout_url', $9::text),
 			now(), now()
 		)
 		RETURNING id, created_at
@@ -260,7 +260,7 @@ func (s *Service) CreateSession(ctx context.Context, in CreateSessionInput) (Ses
 				headers,
 				created_at
 			)
-			VALUES ('payment', $1, $2, $3::jsonb, jsonb_build_object('request_id', $4), now())
+			VALUES ('payment', $1, $2, $3::jsonb, jsonb_build_object('request_id', $4::text), now())
 		`, paymentID, eventType, paymentRequestedPayload, in.RequestID)
 		if err != nil {
 			return Session{}, fmt.Errorf("insert payment outbox event %s: %w", eventType, err)

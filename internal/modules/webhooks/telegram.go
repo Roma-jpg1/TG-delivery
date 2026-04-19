@@ -56,7 +56,7 @@ func (s *TelegramService) Ingest(ctx context.Context, providedSecret, requestID 
 			$1,
 			'update',
 			$2::jsonb,
-			jsonb_build_object('request_id', $3),
+			jsonb_build_object('request_id', $3::text),
 			true,
 			'received',
 			0,

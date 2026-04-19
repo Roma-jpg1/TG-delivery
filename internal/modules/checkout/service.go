@@ -322,7 +322,7 @@ func (s *Service) CreateOrderDraft(ctx context.Context, in CreateDraftInput) (Dr
 			headers,
 			created_at
 		)
-		VALUES ('order', $1, 'OrderDraftCreated', $2::jsonb, jsonb_build_object('request_id', $3), now())
+		VALUES ('order', $1, 'OrderDraftCreated', $2::jsonb, jsonb_build_object('request_id', $3::text), now())
 	`, orderID, outboxPayload, in.RequestID)
 	if err != nil {
 		return Draft{}, fmt.Errorf("insert order draft outbox event: %w", err)

@@ -157,7 +157,7 @@ func (s *Service) Request(ctx context.Context, in RequestInput) (Refund, error) 
 			}
 			_, err = tx.Exec(ctx, `
 				INSERT INTO order_status_history(order_id, from_status, to_status, reason, actor_type, actor_id, metadata, created_at)
-				VALUES ($1, $2::order_status, 'refund_pending', 'manual_refund_requested', $3, $4, jsonb_build_object('reason', $5), now())
+				VALUES ($1, $2::order_status, 'refund_pending', 'manual_refund_requested', $3, $4, jsonb_build_object('reason', $5::text), now())
 			`, in.OrderID, currentStatus, in.ActorType, in.ActorID, in.Reason)
 			if err != nil {
 				return Refund{}, fmt.Errorf("insert refund_pending history: %w", err)
@@ -171,7 +171,7 @@ func (s *Service) Request(ctx context.Context, in RequestInput) (Refund, error) 
 		INSERT INTO refunds(
 			order_id, payment_id, provider, idempotency_key, amount, currency, status, raw_payload, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, 'pending', jsonb_build_object('reason', $7), now(), now())
+		VALUES ($1, $2, $3, $4, $5, $6, 'pending', jsonb_build_object('reason', $7::text), now(), now())
 		ON CONFLICT (idempotency_key)
 		DO UPDATE SET updated_at = now()
 		RETURNING id, order_id, payment_id, provider, COALESCE(provider_refund_id,''), amount, currency, status::text, COALESCE(failure_reason,''), created_at, updated_at
@@ -196,7 +196,7 @@ func (s *Service) Request(ctx context.Context, in RequestInput) (Refund, error) 
 		INSERT INTO outbox_events(
 			aggregate_type, aggregate_id, event_type, payload, headers, created_at
 		)
-		VALUES('refund', $1, 'RefundRequested', jsonb_build_object('refund_id',$1::text,'order_id',$2::text), jsonb_build_object('request_id',$3), now())
+		VALUES('refund', $1, 'RefundRequested', jsonb_build_object('refund_id',$1::text,'order_id',$2::text), jsonb_build_object('request_id',$3::text), now())
 	`, refund.ID, in.OrderID, in.RequestID)
 	if err != nil {
 		return Refund{}, fmt.Errorf("insert refund outbox event: %w", err)

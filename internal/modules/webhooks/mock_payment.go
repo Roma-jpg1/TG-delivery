@@ -64,7 +64,7 @@ func (s *MockPaymentService) Ingest(ctx context.Context, providedSecret, request
 			$1,
 			$2,
 			$3::jsonb,
-			jsonb_build_object('request_id', $4),
+			jsonb_build_object('request_id', $4::text),
 			true,
 			'received',
 			0,

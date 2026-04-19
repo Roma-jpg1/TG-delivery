@@ -471,11 +471,11 @@ func (w *Worker) moveOrderToPaid(ctx context.Context, tx pgx.Tx, orderID uuid.UU
 			'order',
 			$1,
 			'OrderPaid',
-			jsonb_build_object('order_id', $1::text),
+			jsonb_build_object('order_id', $2::text),
 			'{}'::jsonb,
 			now()
 		)
-	`, orderID)
+	`, orderID, orderID.String())
 	if err != nil {
 		return fmt.Errorf("insert order paid outbox event: %w", err)
 	}
@@ -986,7 +986,7 @@ func (w *Worker) markOrderManualReviewByTimeout(ctx context.Context, orderID uui
 		)
 		VALUES (
 			$1, 'paid', 'manual_review', 'paid_timeout_manual_review', 'system',
-			jsonb_build_object('timeout', $2),
+			jsonb_build_object('timeout', $2::text),
 			now()
 		)
 	`, orderID, timeout.String())

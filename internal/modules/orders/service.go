@@ -207,8 +207,8 @@ func (s *Service) ResolveManualReview(ctx context.Context, in ResolveManualRevie
 			'order',
 			$1,
 			$2,
-			jsonb_build_object('order_id', $1::text, 'from_status', $3::text, 'to_status', $4::text, 'reason', $5),
-			jsonb_build_object('request_id', $6),
+			jsonb_build_object('order_id', $1::text, 'from_status', $3::text, 'to_status', $4::text, 'reason', $5::text),
+			jsonb_build_object('request_id', $6::text),
 			now()
 		)
 	`, in.OrderID, "ManualReviewResolved", fromStatus, target, in.Reason, in.RequestID)
