@@ -2,8 +2,11 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:18080/api/v1
 
 export type MenuItem = {
   menu_item_id: string
+  category_id?: string
+  category_name?: string
   name: string
   description?: string
+  photo_url?: string
   price: number
   status: string
 }
@@ -57,6 +60,10 @@ export type Address = {
   city: string
   street: string
   house: string
+  apartment?: string
+  entrance?: string
+  floor?: string
+  comment?: string
   latitude: number
   longitude: number
   is_default: boolean
@@ -76,6 +83,10 @@ export async function upsertAddress(payload: {
   city: string
   street: string
   house: string
+  apartment?: string
+  entrance?: string
+  floor?: string
+  comment?: string
   latitude: number
   longitude: number
   set_default: boolean
@@ -88,6 +99,11 @@ export async function upsertAddress(payload: {
   if (!resp.ok) throw new Error('failed to save address')
   const data = await resp.json()
   return data.address as Address
+}
+
+export async function deleteAddress(userId: string, addressId: string): Promise<void> {
+  const resp = await fetch(`${API_BASE}/addresses/${addressId}?user_id=${userId}`, { method: 'DELETE' })
+  if (!resp.ok) throw new Error('failed to delete address')
 }
 
 export async function getDeliveryQuote(payload: {
@@ -121,7 +137,7 @@ export async function createPaymentSession(orderId: string): Promise<{ checkout_
   const resp = await fetch(`${API_BASE}/payments/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ order_id: orderId, provider: 'mock', idempotency_key: `miniapp-${orderId}` }),
+    body: JSON.stringify({ order_id: orderId, provider: 'mock', idempotency_key: `website-${orderId}` }),
   })
   if (!resp.ok) throw new Error('failed to create payment session')
   const data = await resp.json()

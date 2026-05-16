@@ -1,4 +1,4 @@
-.PHONY: up down logs test build tidy miniapp-dev admin-dev backup restore seed
+.PHONY: up down logs test build tidy website-dev miniapp-dev admin-dev backup restore migrate seed
 
 up:
 	docker compose up -d --build
@@ -18,18 +18,24 @@ build:
 tidy:
 	go mod tidy
 
-miniapp-dev:
+website-dev:
 	cd frontend/miniapp && npm install && npm run dev
+
+miniapp-dev:
+	$(MAKE) website-dev
 
 admin-dev:
 	cd frontend/admin && npm install && npm run dev
 
 backup:
-	./scripts/backup.sh ./backups
+	bash ./scripts/backup.sh ./backups
 
 restore:
 	@echo "Usage: make restore BACKUP=./backups/file.sql.gz"
-	@test -n "$(BACKUP)" && ./scripts/restore.sh "$(BACKUP)" || true
+	@test -n "$(BACKUP)" && bash ./scripts/restore.sh "$(BACKUP)" || true
+
+migrate:
+	bash ./scripts/migrate.sh ./migrations/000001_init.up.sql
 
 seed:
-	./scripts/seed.sh ./scripts/seed_demo.sql
+	bash ./scripts/seed.sh ./scripts/seed_demo.sql

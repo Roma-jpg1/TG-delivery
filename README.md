@@ -1,7 +1,8 @@
-# TG Delivery
+# Delivery Website
 
-MVP foundation for a Telegram-first restaurant ordering system:
-- Telegram Bot + Mini App as client channels
+MVP foundation for a restaurant ordering system:
+- Web storefront as the primary client channel
+- Optional Telegram Bot integration
 - Go backend API (modular monolith)
 - Go worker for async processing (outbox/saga/webhooks)
 - PostgreSQL as source of truth
@@ -22,7 +23,7 @@ This repository contains:
 - addresses API + delivery quote API
 - admin payment/refund APIs + manual refund request
 - worker reconciliation for paid orders and pending refunds
-- React Mini App scaffold (`frontend/miniapp`)
+- React delivery website scaffold (`frontend/miniapp`)
 - React Admin panel scaffold (`frontend/admin`)
 - docker compose for local infrastructure
 
@@ -36,7 +37,7 @@ This repository contains:
 4. Metrics:
    - `GET http://localhost:18080/metrics`
 5. Frontends:
-   - Mini App dev server: `http://localhost:5173`
+   - Website dev server: `http://localhost:5173`
    - Admin dev server: `http://localhost:5174`
 6. Seed demo data:
    - `make seed`
@@ -79,7 +80,7 @@ Single binary supports two roles via `APP_ROLE`:
 Admin endpoints require header `X-Admin-Token`.
 
 ## Telegram bot behavior (worker side)
-- `/start` sends Mini App button.
+- `/start` sends website order button.
 - `/orders` sends latest orders summary.
 - `pre_checkout_query` is validated against current availability and order amount/currency.
 - On order events (`OrderPaid`, manual review resolution), customer notifications are sent when `users.telegram_user_id` exists.

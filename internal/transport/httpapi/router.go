@@ -19,6 +19,7 @@ import (
 
 type Dependencies struct {
 	AvailabilityHandler *adminhandlers.AvailabilityHandler
+	AdminMenuHandler    *adminhandlers.MenuHandler
 	OrdersHandler       *adminhandlers.OrdersHandler
 	AdminPayments       *adminhandlers.PaymentsHandler
 	AdminRefunds        *adminhandlers.RefundsHandler
@@ -87,9 +88,13 @@ func NewRouter(cfg config.Config, logger *slog.Logger, checkDB func() error, dep
 			api.Post("/delivery/quote", deps.DeliveryHandler.Quote)
 		}
 
-		if deps.AvailabilityHandler != nil || deps.OrdersHandler != nil || deps.AdminPayments != nil || deps.AdminRefunds != nil {
+		if deps.AvailabilityHandler != nil || deps.AdminMenuHandler != nil || deps.OrdersHandler != nil || deps.AdminPayments != nil || deps.AdminRefunds != nil {
 			api.Route("/admin", func(admin chi.Router) {
 				admin.Use(middleware.RequireAdminToken(cfg.Security.AdminToken))
+				if deps.AdminMenuHandler != nil {
+					admin.Get("/branches/{branchID}/menu", deps.AdminMenuHandler.ListBranchMenu)
+					admin.Put("/branches/{branchID}/menu-items/{menuItemID}", deps.AdminMenuHandler.UpdateBranchMenuItem)
+				}
 				if deps.AvailabilityHandler != nil {
 					admin.Get("/branches/{branchID}/stop-list", deps.AvailabilityHandler.ListStopList)
 					admin.Put("/branches/{branchID}/menu-items/{menuItemID}/availability", deps.AvailabilityHandler.UpdateAvailability)

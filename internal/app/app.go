@@ -46,7 +46,9 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	availabilityService := availability.NewService(availabilityRepo)
 	availabilityHandler := adminhandlers.NewAvailabilityHandler(availabilityService)
 	deliveryService := delivery.NewService(db)
-	menuHandler := publichandlers.NewMenuHandler(menu.NewService(db))
+	menuService := menu.NewService(db)
+	menuHandler := publichandlers.NewMenuHandler(menuService)
+	adminMenuHandler := adminhandlers.NewMenuHandler(menuService)
 	cartHandler := publichandlers.NewCartHandler(cart.NewService(db))
 	checkoutHandler := publichandlers.NewCheckoutHandler(checkout.NewService(db, deliveryService))
 	paymentsService := payments.NewService(db)
@@ -66,6 +68,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		return postgres.Ping(context.Background(), db, cfg.Database.HealthcheckTimeout)
 	}, httpapi.Dependencies{
 		AvailabilityHandler: availabilityHandler,
+		AdminMenuHandler:    adminMenuHandler,
 		OrdersHandler:       ordersHandler,
 		MenuHandler:         menuHandler,
 		CartHandler:         cartHandler,

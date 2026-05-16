@@ -1,12 +1,14 @@
 # Frontend Apps
 
-## Mini App (`frontend/miniapp`)
+## Delivery Website (`frontend/miniapp`)
 - React + Vite
 - Features:
-  - fetch branch menu
-  - manage cart
-  - create checkout draft
-  - request payment session
+  - restaurant delivery storefront
+  - category navigation and menu search
+  - delivery / pickup mode switch
+  - cart drawer and checkout draft flow
+  - payment session request
+  - addresses and order history
 
 ## Admin (`frontend/admin`)
 - React + Vite
@@ -16,8 +18,8 @@
   - manual resolution actions (confirm/cancel/refund)
 
 ## Run locally
-- `make miniapp-dev`
+- `make website-dev`
 - `make admin-dev`
 
 Or with Docker Compose:
-- `docker compose up miniapp admin`
+- `docker compose up website admin`
